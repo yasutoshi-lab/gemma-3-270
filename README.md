@@ -21,3 +21,6 @@ gemma-3-270/
 ├── uv.lock
 └── validation.bin                                               # バイナリをトークン化し、トークンを1次元配列として連結したバイナリ
 ```
+
+## Push時の注意点
+https://qiita.com/kanaya/items/ad52f25da32cb5aa19e6
