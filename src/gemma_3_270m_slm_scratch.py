@@ -472,157 +472,162 @@ GEMMA3_CONFIG_270M = {
     "query_pre_attn_scalar": 256,
 }
 
-torch.manual_seed(123)
-model = Gemma3Model(GEMMA3_CONFIG_270M)
+# Training the model
+# The learning process will not start unless you run this program directly.
 
-"""## Step 5: Define the loss function"""
+if __name__ == "__main__":
 
-def estimate_loss(model):
-    out = {}
-    model.eval()
-    with torch.inference_mode():
-        for split in ['train', 'val']:
-            losses = torch.zeros(eval_iters)
-            for k in range(eval_iters):
-                X, Y = get_batch(split)
-                with ctx:
-                    logits, loss = model(X, Y)
-                losses[k] = loss.item()
-            out[split] = losses.mean()
-    model.train()
-    return out
+    torch.manual_seed(123)
+    model = Gemma3Model(GEMMA3_CONFIG_270M)
 
-"""## Step 6: Define SLM Training Configuration Part 1"""
+    """## Step 5: Define the loss function"""
 
-# Training Config
-import torch
-from contextlib import nullcontext
+    def estimate_loss(model):
+        out = {}
+        model.eval()
+        with torch.inference_mode():
+            for split in ['train', 'val']:
+                losses = torch.zeros(eval_iters)
+                for k in range(eval_iters):
+                    X, Y = get_batch(split)
+                    with ctx:
+                        logits, loss = model(X, Y)
+                    losses[k] = loss.item()
+                out[split] = losses.mean()
+        model.train()
+        return out
 
-learning_rate = 1e-4 #more stable training, earlier 1e-4
-max_iters = 150000 #increase from 25000
-warmup_steps = 1000 #smoother initial train, earlier 100
-min_lr = 5e-4 #lower rate, earlier 5e-4
-eval_iters = 5 # increased from 100
-batch_size = 32 # changed from 16, better gradient estimate
-block_size = 128 #changed from 64, capture longer range dependencies
+    """## Step 6: Define SLM Training Configuration Part 1"""
 
-gradient_accumulation_steps = 32 # reduced from 50
+    # Training Config
+    import torch
+    from contextlib import nullcontext
 
-device =  "cuda" if torch.cuda.is_available() else "cpu"
-device_type = 'cuda' if 'cuda' in device else 'cpu' # for later use in torch.autocast
-# note: float16 data type will automatically use a GradScaler
+    learning_rate = 1e-4 #more stable training, earlier 1e-4
+    max_iters = 150000 #increase from 25000
+    warmup_steps = 1000 #smoother initial train, earlier 100
+    min_lr = 5e-4 #lower rate, earlier 5e-4
+    eval_iters = 5 # increased from 100
+    batch_size = 32 # changed from 16, better gradient estimate
+    block_size = 128 #changed from 64, capture longer range dependencies
 
-# How to use autocast https://wandb.ai/wandb_fc/tips/reports/How-To-Use-Autocast-in-PyTorch--VmlldzoyMTk4NTky
-#dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16' # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
-dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16' # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
-ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[dtype]
+    gradient_accumulation_steps = 32 # reduced from 50
 
-ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
+    device =  "cuda" if torch.cuda.is_available() else "cpu"
+    device_type = 'cuda' if 'cuda' in device else 'cpu' # for later use in torch.autocast
+    # note: float16 data type will automatically use a GradScaler
 
-torch.set_default_device(device)
-torch.manual_seed(42)
+    # How to use autocast https://wandb.ai/wandb_fc/tips/reports/How-To-Use-Autocast-in-PyTorch--VmlldzoyMTk4NTky
+    #dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16' # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
+    dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16' # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
+    ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[dtype]
 
-"""## Step 7: Define SLM Training Configuration Part 2"""
+    ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
 
-from torch.optim.lr_scheduler import LinearLR,SequentialLR, CosineAnnealingLR
+    torch.set_default_device(device)
+    torch.manual_seed(42)
 
-##PUT IN WEIGHT DECAY, CHANGED BETA2 to 0.95
-optimizer =  torch.optim.AdamW(model.parameters(), lr=learning_rate, betas=(0.9, 0.95), weight_decay=0.1, eps=1e-9) #weight decay for regularization
+    """## Step 7: Define SLM Training Configuration Part 2"""
 
-scheduler_warmup = LinearLR(optimizer, total_iters = warmup_steps) #Implement linear warmup
-scheduler_decay = CosineAnnealingLR(optimizer,T_max = max_iters - warmup_steps, eta_min = min_lr) #Implement lr decay
-scheduler = SequentialLR(optimizer, schedulers=[scheduler_warmup, scheduler_decay], milestones=[warmup_steps]) #Switching from warmup to decay
+    from torch.optim.lr_scheduler import LinearLR,SequentialLR, CosineAnnealingLR
 
-# https://stackoverflow.com/questions/72534859/is-gradscaler-necessary-with-mixed-precision-training-with-pytorch
-scaler = torch.cuda.amp.GradScaler(enabled=(dtype == 'float16'))
+    ##PUT IN WEIGHT DECAY, CHANGED BETA2 to 0.95
+    optimizer =  torch.optim.AdamW(model.parameters(), lr=learning_rate, betas=(0.9, 0.95), weight_decay=0.1, eps=1e-9) #weight decay for regularization
 
-"""## Step 8: Pre-train the SLM"""
+    scheduler_warmup = LinearLR(optimizer, total_iters = warmup_steps) #Implement linear warmup
+    scheduler_decay = CosineAnnealingLR(optimizer,T_max = max_iters - warmup_steps, eta_min = min_lr) #Implement lr decay
+    scheduler = SequentialLR(optimizer, schedulers=[scheduler_warmup, scheduler_decay], milestones=[warmup_steps]) #Switching from warmup to decay
 
-best_val_loss = float('inf')
-best_model_params_path = "best_model_params.pt"
-train_loss_list, validation_loss_list = [], []
-training_log = []
+    # https://stackoverflow.com/questions/72534859/is-gradscaler-necessary-with-mixed-precision-training-with-pytorch
+    scaler = torch.cuda.amp.GradScaler(enabled=(dtype == 'float16'))
 
-# Ensure model is on the correct device
-model = model.to(device)
+    """## Step 8: Pre-train the SLM"""
 
-# In your training loop
-for epoch in tqdm(range(max_iters)):
-    if epoch % eval_iters == 0 and epoch != 0:
-        # Ensure estimate_loss uses the correct device
-        losses = estimate_loss(model)
-        current_lr = optimizer.param_groups[0]['lr']
-        print(f"Epoch {epoch}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
-        print(f"The current learning rate: {current_lr:.5f}")
-        train_loss_list += [losses['train']]
-        validation_loss_list += [losses['val']]
+    best_val_loss = float('inf')
+    best_model_params_path = "best_model_params.pt"
+    train_loss_list, validation_loss_list = [], []
+    training_log = []
 
-        # Log to JSON
-        log_entry = {
-            "epoch": epoch,
-            "train_loss": float(losses['train']),
-            "val_loss": float(losses['val']),
-            "learning_rate": current_lr
-        }
-        training_log.append(log_entry)
-        
-        # Save log to file
-        with open("training_log.json", "w") as f:
-            json.dump(training_log, f, indent=2)
+    # Ensure model is on the correct device
+    model = model.to(device)
 
-        if losses['val'] < best_val_loss:
-            best_val_loss = losses['val']
-            torch.save(model.state_dict(), best_model_params_path)
+    # In your training loop
+    for epoch in tqdm(range(max_iters)):
+        if epoch % eval_iters == 0 and epoch != 0:
+            # Ensure estimate_loss uses the correct device
+            losses = estimate_loss(model)
+            current_lr = optimizer.param_groups[0]['lr']
+            print(f"Epoch {epoch}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+            print(f"The current learning rate: {current_lr:.5f}")
+            train_loss_list += [losses['train']]
+            validation_loss_list += [losses['val']]
 
-    # Ensure X and y are on the correct device
-    X, y = get_batch("train")
-    X, y = X.to(device), y.to(device)
+            # Log to JSON
+            log_entry = {
+                "epoch": epoch,
+                "train_loss": float(losses['train']),
+                "val_loss": float(losses['val']),
+                "learning_rate": current_lr
+            }
+            training_log.append(log_entry)
+            
+            # Save log to file
+            with open("training_log.json", "w") as f:
+                json.dump(training_log, f, indent=2)
 
-    with ctx:
-        logits, loss = model(X, y)
-        loss = loss / gradient_accumulation_steps
-        scaler.scale(loss).backward()
+            if losses['val'] < best_val_loss:
+                best_val_loss = losses['val']
+                torch.save(model.state_dict(), best_model_params_path)
 
-    if ((epoch + 1) % gradient_accumulation_steps == 0) or (epoch + 1 == max_iters):
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
-        scaler.step(optimizer)
-        scaler.update()
-        optimizer.zero_grad(set_to_none=True)
-    scheduler.step()
+        # Ensure X and y are on the correct device
+        X, y = get_batch("train")
+        X, y = X.to(device), y.to(device)
 
-"""## Step 9: Plot the SLM Loss Function"""
+        with ctx:
+            logits, loss = model(X, y)
+            loss = loss / gradient_accumulation_steps
+            scaler.scale(loss).backward()
 
-import matplotlib.pyplot as plt
-train_loss_list_converted = [i.cpu().detach() for i in train_loss_list]
-validation_loss_list_converted = [i.cpu().detach() for i in validation_loss_list]
+        if ((epoch + 1) % gradient_accumulation_steps == 0) or (epoch + 1 == max_iters):
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
+            scaler.step(optimizer)
+            scaler.update()
+            optimizer.zero_grad(set_to_none=True)
+        scheduler.step()
 
-plt.plot(train_loss_list_converted, 'g', label='train_loss')
-plt.plot(validation_loss_list_converted, 'r', label='validation_loss')
-plt.xlabel("Steps - Every 100 epochs")
-plt.ylabel("Loss")
-plt.legend()
-plt.show()
-plt.savefig('loss_function.png')
+    """## Step 9: Plot the SLM Loss Function"""
 
-"""## Step 10: Run SLM Inference on our trained model"""
+    import matplotlib.pyplot as plt
+    train_loss_list_converted = [i.cpu().detach() for i in train_loss_list]
+    validation_loss_list_converted = [i.cpu().detach() for i in validation_loss_list]
 
-#Load the model
-model = Gemma3Model(GEMMA3_CONFIG_270M)  # re-create the model with same config
-device =  "cuda" if torch.cuda.is_available() else "cpu"
-best_model_params_path = "best_model_params.pt"
-model.load_state_dict(torch.load(best_model_params_path, map_location=torch.device(device))) # load best model states
+    plt.plot(train_loss_list_converted, 'g', label='train_loss')
+    plt.plot(validation_loss_list_converted, 'r', label='validation_loss')
+    plt.xlabel("Steps - Every 100 epochs")
+    plt.ylabel("Loss")
+    plt.legend()
+    plt.show()
+    plt.savefig('loss_function.png')
 
-sentence = "Once upon a time there was a pumpkin."
-context = (torch.tensor(enc.encode_ordinary(sentence)).unsqueeze(dim = 0))
-y = model.generate(context, 200)
-print(enc.decode(y.squeeze().tolist()))
+    """## Step 10: Run SLM Inference on our trained model"""
 
-sentence = "A little girl went to the woods"
-context = (torch.tensor(enc.encode_ordinary(sentence)).unsqueeze(dim = 0))
-y = model.generate(context, 200)
-print(enc.decode(y.squeeze().tolist()))
+    #Load the model
+    model = Gemma3Model(GEMMA3_CONFIG_270M)  # re-create the model with same config
+    device =  "cuda" if torch.cuda.is_available() else "cpu"
+    best_model_params_path = "best_model_params.pt"
+    model.load_state_dict(torch.load(best_model_params_path, map_location=torch.device(device))) # load best model states
 
-sentence = "Grandmother was telling the kids story about a unicorn"
-context = (torch.tensor(enc.encode_ordinary(sentence)).unsqueeze(dim = 0))
-y = model.generate(context, 200)
-print(enc.decode(y.squeeze().tolist()))
+    sentence = "Once upon a time there was a pumpkin."
+    context = (torch.tensor(enc.encode_ordinary(sentence)).unsqueeze(dim = 0))
+    y = model.generate(context, 200)
+    print(enc.decode(y.squeeze().tolist()))
+
+    sentence = "A little girl went to the woods"
+    context = (torch.tensor(enc.encode_ordinary(sentence)).unsqueeze(dim = 0))
+    y = model.generate(context, 200)
+    print(enc.decode(y.squeeze().tolist()))
+
+    sentence = "Grandmother was telling the kids story about a unicorn"
+    context = (torch.tensor(enc.encode_ordinary(sentence)).unsqueeze(dim = 0))
+    y = model.generate(context, 200)
+    print(enc.decode(y.squeeze().tolist()))
