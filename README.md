@@ -70,3 +70,6 @@ uv run src/gemma_3_270m_inference.py --prompt "Grandmother was telling" --max_to
 
 ## Push時の注意点
 https://qiita.com/kanaya/items/ad52f25da32cb5aa19e6
+
+## コードの引用元
+https://www.reddit.com/r/LocalLLaMA/comments/1n0haub/comment/naqnjg9/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button
