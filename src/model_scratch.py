@@ -748,10 +748,12 @@ if __name__ == "__main__":
     logging_steps = 1
     weight_decay = 0.1
     betas = (0.9, 0.95)
+    seed = 42
+    tiktoken_encoder_name = "gpt2"
 
     import tiktoken
 
-    enc = tiktoken.get_encoding("gpt2")
+    enc = tiktoken.get_encoding(tiktoken_encoder_name)
     os.makedirs(output_dir, exist_ok=True)
 
     # GEMMA3_CONFIG_270MをJSON形式で保存
@@ -760,16 +762,34 @@ if __name__ == "__main__":
     if "dtype" in config_for_json:
         config_for_json["dtype"] = str(config_for_json["dtype"]).replace("torch.", "")
 
-    config_path = os.path.join(output_dir, "gemma_config.json")
+    config_path = os.path.join(output_dir, "config.json")
     with open(config_path, "w") as f:
         json.dump(config_for_json, f, indent=2)
     print(f"Model configuration saved to {config_path}")
+
+    # トークナイザー情報をJSONファイルとして保存
+    print("Building vocabulary mapping...")
+    vocab = {}
+    for i in range(enc.n_vocab):
+        try:
+            # トークンIDをバイト列にデコードして文字列に変換
+            token_bytes = enc.decode_single_token_bytes(i)
+            token_str = token_bytes.decode('utf-8', errors='replace')
+            vocab[token_str] = i
+        except:
+            # デコードできない場合はスキップ
+            pass
+
+    vocab_path = os.path.join(output_dir, "vocab.json")
+    with open(vocab_path, "w", encoding="utf-8") as f:
+        json.dump(vocab, f, indent=2, ensure_ascii=False)
+    print(f"Vocabulary saved to {vocab_path} ({len(vocab)} tokens)")
 
     # データセットのロード
     train_ds = load_dataset("wikimedia/wikipedia", "20231101.en", split="train[:1000]")
     val_ds = load_dataset("wikimedia/wikipedia", "20231101.en", split="train[1000:1100]")
 
-    torch.manual_seed(123)
+    torch.manual_seed(seed)
     model = Gemma3Model(GEMMA3_CONFIG_270M)
 
     def estimate_loss_with_loader(model, loader, max_batches=None):

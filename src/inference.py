@@ -69,50 +69,17 @@ def apply_rope(x, cos, sin):
     return x_rotated.to(dtype=x.dtype)
 
 
-GEMMA3_CONFIG_270M = {
-    "vocab_size": 50257,
-    "context_length": 32_768,
-    "emb_dim": 640,
-    "n_heads": 4,
-    "n_layers": 18,
-    "hidden_dim": 2048,
-    "head_dim": 256,
-    "qk_norm": True,
-    "n_kv_groups": 1,
-    "rope_local_base": 10_000.0,
-    "rope_base": 1_000_000.0,
-    "sliding_window": 512,
-    "layer_types": [
-        "sliding_attention",
-        "sliding_attention",
-        "sliding_attention",
-        "sliding_attention",
-        "sliding_attention",
-        "full_attention",
-        "sliding_attention",
-        "sliding_attention",
-        "sliding_attention",
-        "sliding_attention",
-        "sliding_attention",
-        "full_attention",
-        "sliding_attention",
-        "sliding_attention",
-        "sliding_attention",
-        "sliding_attention",
-        "sliding_attention",
-        "full_attention"
-    ],
-    "dtype": torch.bfloat16,
-    "query_pre_attn_scalar": 256,
-}
+def load_config(config_path="output/config.json"):
+    with open(config_path, "r") as f:
+        config = json.load(f)
+    return config
 
-
-def load_model(model_path="src/best_model_params.pt", device="auto"):
+def load_model(model_path="output/best_model_params.pt", device="auto"):
     """保存されたパラメータから訓練済みのGemma-3 270Mモデルを読み込み
     
     Args:
         model_path (str, optional): モデルパラメータファイルのパス。
-                                   デフォルトは"src/best_model_params.pt"
+                                   デフォルトは"output/best_model_params.pt"
         device (str, optional): 使用するデバイス。"cuda", "cpu", または "auto"
                                 "auto"の場合はCUDAが利用可能ならCUDA、そうでなければCPUを使用
     
@@ -128,7 +95,8 @@ def load_model(model_path="src/best_model_params.pt", device="auto"):
     if device == "auto":
         device = "cuda" if torch.cuda.is_available() else "cpu"
     
-    model = Gemma3Model(GEMMA3_CONFIG_270M)
+    config = load_config(args.config_path)
+    model = Gemma3Model(config)
     model.load_state_dict(torch.load(model_path, map_location=torch.device(device)))
     model = model.to(device)
     model.eval()
@@ -188,6 +156,7 @@ def main():
     parser.add_argument("--temperature", type=float, default=1.0, help="サンプリング温度")
     parser.add_argument("--top_k", type=int, default=None, help="Top-Kサンプリング")
     parser.add_argument("--model_path", type=str, default="output/best_model_params.pt", help="モデルパラメータファイルのパス")
+    parser.add_argument("--config_path", type=str, default="output/config.json", help="モデル設定ファイルのパス")
     parser.add_argument("--device", type=str, default="auto", help="使用するデバイス (cuda/cpu/auto)")
     
     args = parser.parse_args()
