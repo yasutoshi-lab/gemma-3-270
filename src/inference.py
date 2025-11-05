@@ -74,12 +74,12 @@ def load_config(config_path="output/config.json"):
         config = json.load(f)
     return config
 
-def load_model(model_path="output/best_model_params.pt", device="auto"):
+def load_model(model_path="output/gemma_3_270m.pt", device="auto"):
     """保存されたパラメータから訓練済みのGemma-3 270Mモデルを読み込み
     
     Args:
         model_path (str, optional): モデルパラメータファイルのパス。
-                                   デフォルトは"output/best_model_params.pt"
+                                   デフォルトは"output/gemma_3_270m.pt"
         device (str, optional): 使用するデバイス。"cuda", "cpu", または "auto"
                                 "auto"の場合はCUDAが利用可能ならCUDA、そうでなければCPUを使用
     
@@ -155,7 +155,7 @@ def main():
     parser.add_argument("--max_tokens", type=int, default=200, help="生成する最大トークン数")
     parser.add_argument("--temperature", type=float, default=1.0, help="サンプリング温度")
     parser.add_argument("--top_k", type=int, default=None, help="Top-Kサンプリング")
-    parser.add_argument("--model_path", type=str, default="output/best_model_params.pt", help="モデルパラメータファイルのパス")
+    parser.add_argument("--model_path", type=str, default="output/gemma_3_270m.pt", help="モデルパラメータファイルのパス")
     parser.add_argument("--config_path", type=str, default="output/config.json", help="モデル設定ファイルのパス")
     parser.add_argument("--device", type=str, default="auto", help="使用するデバイス (cuda/cpu/auto)")
     

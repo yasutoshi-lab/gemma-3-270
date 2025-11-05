@@ -1,99 +1,118 @@
-
 import os
 import numpy as np
 from tqdm.auto import tqdm
+
+from typing import Iterable, Optional, Union
 from datasets import load_dataset
+from torch.utils.data import Dataset, DataLoader
 
+class GPTDatasetV1(Dataset):
+    def __init__(
+        self,
+        txt: str,
+        enc,
+        max_length: int,
+        stride: int,
+    ) -> None:
+        self.input_ids = []
+        self.target_ids = []
 
+        # Tokenize the entire text
+        token_ids = enc.encode(txt, allowed_special={"<|endoftext|>"})
 
-# train_ds = load_dataset("json", data_files="train_dataset_25000.jsonl")
-# validation_ds = load_dataset("json", data_files="validation_dataset_2500.jsonl")
+        # Create overlapping windows; if the text is shorter than max_length+1,
+        # this loop simply yields no samples (no assertion error).
+        for i in range(0, max(0, len(token_ids) - max_length), stride):
+            input_chunk = token_ids[i : i + max_length]
+            target_chunk = token_ids[i + 1 : i + max_length + 1]
+            self.input_ids.append(torch.tensor(input_chunk))
+            self.target_ids.append(torch.tensor(target_chunk))
 
+    def __len__(self):
+        return len(self.input_ids)
 
+    def __getitem__(self, idx):
+        return self.input_ids[idx], self.target_ids[idx]
 
-# def process(example):
-#     """テキストサンプルをトークンIDに変換
-    
-#     Args:
-#         example (dict): 'text'キーを含む辞書
-#             - text (str): トークン化するテキスト文字列
-    
-#     Returns:
-#         dict: トークン化された結果を含む辞書
-#             - ids (list[int]): トークンIDのリスト
-#             - len (int): トークンIDの数
-    
-#     Behavior:
-#         入力テキストをGPT-2エンコーダーを使用してトークンIDに変換
-#         特殊トークンを無視してIDとその長さを返す
-#     """
-#     ids = enc.encode_ordinary(example['text'])  # 無視してエンコード
-#     out = {'ids': ids, 'len': len(ids)}
-#     return out
+import torch
 
-# if not os.path.exists("output/train.bin"):
-#     tokenized = train_ds.map(
-#         process,
-#         remove_columns=['text'],
-#         desc="tokenizing the splits",
-#         num_proc=4,
-#         )
-#     # 各データセットのIDを結合して大きなファイルを作成
-#     arr_len = np.sum(tokenized['len'], dtype=np.uint64)
-#     filename = f'output/train.bin'
-#     dtype = np.uint16 # (enc.max_token_value == 50256 < 2**16)
-#     arr = np.memmap(filename, dtype=dtype, mode='w+', shape=(arr_len,))
-#     arr[:] = np.concatenate(tokenized['ids'])
-#     arr.flush()
+def union_dataset_text(
+    source: Union[Iterable[str], "datasets.Dataset"],
+    *,
+    field: str = "text",
+    add_eos_between_documents: bool = True,
+    eos_token: str = "<|endoftext|>",
+    max_samples: Optional[int] = None,
+) -> str:
+    """
+    HuggingFace Dataset もしくは文字列の反復可能オブジェクトからテキストを結合して
+    1 つの長い文字列を返す。各ドキュメントの区切りとして EOS を挿入可能。
+    """
 
-# if not os.path.exists("output/validation.bin"):
-#     tokenized = validation_ds.map(
-#         process,
-#         remove_columns=['text'],
-#         desc="tokenizing the splits",
-#         num_proc=4,
-#         )
-#     arr_len = np.sum(tokenized['len'], dtype=np.uint64)
-#     filename = f'output/validation.bin'
-#     dtype = np.uint16 # (enc.max_token_value == 50256 < 2**16)
-#     arr = np.memmap(filename, dtype=dtype, mode='w+', shape=(arr_len,))
-#     arr[:] = np.concatenate(tokenized['ids'])
-#     arr.flush()
+    pieces: list[str] = []
 
-# # block_size = コンテキストウィンドウ
-# def get_batch(split):
-#     """指定された分割（訓練または検証）からバッチデータを取得
-    
-#     Args:
-#         split (str): データ分割の種類
-    
-#     Returns:
-#         tuple[torch.Tensor, torch.Tensor]: 入力と目標出力のテンソルペア
-#             - x (torch.Tensor): 入力シーケンス、形状 (batch_size, block_size)
-#             - y (torch.Tensor): 目標出力シーケンス、形状 (batch_size, block_size)
-    
-#     Behavior:
-#         メモリリークを回避するため、各バッチでnp.memmapを再作成
-#         指定された分割からランダムなシーケンスを抽出してバッチを作成
-#         GPUが利用可能な場合は、非同期転送のためにメモリをピン留め
-#     """
-#     # メモリリークを回避するため、各バッチでnp.memmapを再作成
-#     # 参考: https://stackoverflow.com/questions/45132940/numpy-memmap-memory-usage-want-to-iterate-once/61472122#61472122
-#     if split == 'train':
-#         data = np.memmap('output/train.bin', dtype=np.uint16, mode='r')
-#     else:
-#         data = np.memmap('output/validation.bin', dtype=np.uint16, mode='r')
-#     ix = torch.randint(len(data) - block_size, (batch_size,))
-#     x = torch.stack([torch.from_numpy((data[i:i+block_size]).astype(np.int64)) for i in ix])
-#     y = torch.stack([torch.from_numpy((data[i+1:i+1+block_size]).astype(np.int64)) for i in ix])
-#     if device_type == 'cuda':
-#         # 配列x,yをピン留めし、GPUへ非同期移動（non_blocking=True)
-#         x, y = x.pin_memory().to(device, non_blocking=True), y.pin_memory().to(device, non_blocking=True)
-#     else:
-#         x, y = x.to(device), y.to(device)
-#     return x, y
+    # HuggingFace Dataset の場合（duck typing）
+    if hasattr(source, "column_names") and hasattr(source, "__getitem__"):
+        total = len(source)
+        limit = total if max_samples is None else min(total, max_samples)
+        for i in range(limit):
+            rec = source[i]
+            txt = rec[field] if isinstance(rec, dict) else getattr(rec, field)
+            pieces.append(txt)
+    else:
+        # Iterable[str] を想定
+        for idx, txt in enumerate(source):
+            if max_samples is not None and idx >= max_samples:
+                break
+            pieces.append(txt)
 
-from dataloader import create_dataloader_v1
+    if add_eos_between_documents:
+        # ドキュメント境界に EOS を配置（末尾にも 1 つ入る形で OK）
+        sep = eos_token
+        return sep.join(pieces) + (sep if pieces else "")
+    else:
+        return "".join(pieces)
+
+def create_dataloader_v1(
+    enc,
+    source: Union[str, Iterable[str], "datasets.Dataset"],
+    *,
+    batch_size: int = 4,
+    max_length: int = 256,
+    stride: int = 128,
+    shuffle: bool = True,
+    drop_last: bool = True,
+    num_workers: int = 0,
+    field: str = "text",
+    add_eos_between_documents: bool = True,
+    eos_token: str = "<|endoftext|>",
+    pin_memory: bool = False,
+) -> DataLoader:
+    # Prepare text
+    if isinstance(source, str):
+        txt = source
+    else:
+        txt = union_dataset_text(
+            source,
+            field=field,
+            add_eos_between_documents=add_eos_between_documents,
+            eos_token=eos_token,
+        )
+
+    # Create dataset
+    dataset = GPTDatasetV1(txt, enc, max_length, stride)
+
+    # Create dataloader
+    dataloader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        drop_last=drop_last,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+    )
+
+    return dataloader
 
 import torch
 
@@ -820,6 +839,7 @@ if __name__ == "__main__":
 
     # dataloaderの作成（torch.set_default_deviceの前）
     train_loader = create_dataloader_v1(
+        enc,
         train_ds,
         batch_size=train_batch_size,
         max_length=max_length,
@@ -831,6 +851,7 @@ if __name__ == "__main__":
     )
 
     val_loader = create_dataloader_v1(
+        enc,
         val_ds,
         batch_size=vak_batch_size,
         max_length=max_length,
@@ -867,7 +888,7 @@ if __name__ == "__main__":
     scaler = torch.amp.GradScaler(device_type, enabled=(dtype == 'float16'))
 
     best_val_loss = float('inf')
-    best_model_params_path = os.path.join(output_dir, "best_model_params.pt")
+    model_path = os.path.join(output_dir, "gemma_3_270m.pt")
     train_loss_list, validation_loss_list = [], []
     training_log = []
     validation_log = []
@@ -939,7 +960,7 @@ if __name__ == "__main__":
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-                torch.save(model.state_dict(), best_model_params_path)
+                torch.save(model.state_dict(), model_path)
 
     pbar.close()
 
@@ -958,7 +979,7 @@ if __name__ == "__main__":
     # モデルをロード
     model = Gemma3Model(GEMMA3_CONFIG_270M)  # 同じ設定でモデルを再作成
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    best_model_params_path = os.path.join(output_dir, "best_model_params.pt")
+    best_model_params_path = os.path.join(output_dir, "gemma_3_270m.pt")
     model.load_state_dict(torch.load(best_model_params_path, map_location=torch.device(device)))  # 最良のモデル状態をロード
 
     sentence = "Neural Networks"
