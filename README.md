@@ -9,7 +9,28 @@
 
 ## 構成
 
-```txt
+```bash
+gemma-3-270/
+├── Dockerfile
+├── README.md
+├── gemma_3_270m.png
+├── output
+│   ├── config.json
+│   ├── loss_function.png
+│   ├── model.safetensors
+│   ├── training_log.json
+│   ├── validation_log.json
+│   └── vocab.json
+├── pyproject.toml
+├── requirements.txt
+├── src
+│   ├── inference.py
+│   ├── model_scratch.py
+│   ├── test.jsonl
+│   ├── train.jsonl
+│   └── val.jsonl
+├── use_gpu.png
+└── uv.lock
 ```
 
 

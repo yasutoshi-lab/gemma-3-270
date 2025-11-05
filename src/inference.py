@@ -36,13 +36,13 @@ def main():
         uv run src/inference.py \
         --prompt "Language Model" \
         --max_tokens 200 \
-        --model_path "src/output/model.safetensors" \
+        --model_path "output/model.safetensors" \
         --device "cpu"
     """
     parser = argparse.ArgumentParser(description="Pre-Trainedモデルのテキスト生成")
     parser.add_argument("--prompt", type=str, default="Neural Networks", help="テキスト生成用のプロンプト")
     parser.add_argument("--max_tokens", type=int, default=200, help="生成する最大トークン数")
-    parser.add_argument("--model_path", type=str, default="src/output/model.safetensors", help="モデルパラメータファイルのパス")
+    parser.add_argument("--model_path", type=str, default="output/model.safetensors", help="モデルパラメータファイルのパス")
     parser.add_argument("--device", type=str, default="cpu", help="使用するデバイス (cuda/cpu)")
     args = parser.parse_args()
     print(generate_text(args))
