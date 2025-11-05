@@ -12,7 +12,9 @@ enc = tiktoken.get_encoding("gpt2")
 train_ds = load_dataset("wikimedia/wikipedia", "20231101.en",split="train[:1000]")
 val_ds = load_dataset("wikimedia/wikipedia", "20231101.en",split="train[1000:1100]")
 
-os.makedirs("output", exist_ok=True)
+output_dir = "output"
+
+os.makedirs(output_dir, exist_ok=True)
 
 # def process(example):
 #     """テキストサンプルをトークンIDに変換
@@ -816,7 +818,7 @@ def estimate_loss_with_loader(model, loader, max_batches=None):
     scaler = torch.cuda.amp.GradScaler(enabled=(dtype == 'float16'))
 
     best_val_loss = float('inf')
-    best_model_params_path = "best_model_params.pt"
+    best_model_params_path = os.path.join(output_dir, "best_model_params.pt")
     train_loss_list, validation_loss_list = [], []
     training_log = []
 
@@ -871,7 +873,7 @@ def estimate_loss_with_loader(model, loader, max_batches=None):
             }
             training_log.append(log_entry)
 
-            with open("training_log.json", "w") as f:
+            with open(os.path.join(output_dir, "training_log.json"), "w") as f:
                 json.dump(training_log, f, indent=2)
 
             if val_loss < best_val_loss:
@@ -890,12 +892,12 @@ def estimate_loss_with_loader(model, loader, max_batches=None):
     plt.ylabel("Loss")
     plt.legend()
     plt.show()
-    plt.savefig('loss_function.png')
+    plt.savefig(os.path.join(output_dir, 'loss_function.png'))
 
     # モデルをロード
     model = Gemma3Model(GEMMA3_CONFIG_270M)  # 同じ設定でモデルを再作成
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    best_model_params_path = "best_model_params.pt"
+    best_model_params_path = os.path.join(output_dir, "best_model_params.pt")
     model.load_state_dict(torch.load(best_model_params_path, map_location=torch.device(device)))  # 最良のモデル状態をロード
 
     sentence = "Once upon a time there was a pumpkin."

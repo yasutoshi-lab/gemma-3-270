@@ -12,17 +12,11 @@
 ```bash
 gemma-3-270/
 ├── README.md
-├── best_model_params.pt                                         # モデル
-├── log.log                                                      # 手動作成したターミナルlog
-├── loss_function.png                                            # プロットしたグラフ
 ├── pyproject.toml
 ├── src 
-│   └── emma_3_270m_slm_scratch.py                              # 学習用ファイル
-│   └── gemma_3_270m_inference.py                               # 推論用ファイル
-├── train.bin                                                    # バイナリをトークン化し、トークンを1次元配列として連結したバイナリ
-├── training_log.json                                            # 1epochs単位のログ情報
-├── uv.lock
-└── validation.bin                                               # バイナリをトークン化し、トークンを1次元配列として連結したバイナリ
+│   └── model_scratch.py                              # 学習用ファイル
+│   └── inference.py                               # 推論用ファイル                                         # 1epochs単位のログ情報
+├── uv.lock                                         # バイナリをトークン化し、トークンを1次元配列として連結したバイナリ
 ```
 
 ## 学習
