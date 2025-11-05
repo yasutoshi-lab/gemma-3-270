@@ -203,6 +203,7 @@ from tqdm.auto import tqdm
 from contextlib import nullcontext
 import os
 import json
+from safetensors.torch import save_file, load_file
 
 class RMSNorm(nn.Module):
     """Root Mean Square正規化レイヤー（Gemma3実装）。
@@ -551,7 +552,7 @@ class Gemma3Model(nn.Module):
         assert cfg["layer_types"] is not None and len(cfg["layer_types"]) == cfg["n_layers"]
 
         # メインモデルパラメータ
-        self.tok_emb = nn.Embedding(cfg["vocab_size"], cfg["emb_dim"], dtype=cfg["dtype"])
+        self.tok_emb = nn.Embedding(cfg["vocab_size"], cfg["emb_dim"], dtype=(cfg["dtype"]))
 
         self.blocks = nn.ModuleList([
             TransformerBlock(cfg, attn_type)for attn_type in cfg["layer_types"]
@@ -830,7 +831,6 @@ if __name__ == "__main__":
         model.train()
         return float(np.mean(losses)) if losses else float("inf")
 
-    # トレーニング設定
     import torch
     from contextlib import nullcontext
 
@@ -888,7 +888,7 @@ if __name__ == "__main__":
     scaler = torch.amp.GradScaler(device_type, enabled=(dtype == 'float16'))
 
     best_val_loss = float('inf')
-    model_path = os.path.join(output_dir, "gemma_3_270m.pt")
+    model_path = os.path.join(output_dir, "model.safetensors")
     train_loss_list, validation_loss_list = [], []
     training_log = []
     validation_log = []
@@ -960,7 +960,7 @@ if __name__ == "__main__":
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-                torch.save(model.state_dict(), model_path)
+                save_file(model.state_dict(), model_path)
 
     pbar.close()
 
@@ -973,14 +973,13 @@ if __name__ == "__main__":
     plt.xlabel("Steps - Every 100 epochs")
     plt.ylabel("Loss")
     plt.legend()
-    plt.show()
     plt.savefig(os.path.join(output_dir, 'loss_function.png'))
 
     # モデルをロード
     model = Gemma3Model(GEMMA3_CONFIG_270M)  # 同じ設定でモデルを再作成
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    best_model_params_path = os.path.join(output_dir, "gemma_3_270m.pt")
-    model.load_state_dict(torch.load(best_model_params_path, map_location=torch.device(device)))  # 最良のモデル状態をロード
+    best_model_params_path = os.path.join(output_dir, "model.safetensors")
+    model.load_state_dict(load_file(best_model_params_path))  # 最良のモデル状態をロード
 
     sentence = "Neural Networks"
     context = (torch.tensor(enc.encode_ordinary(sentence)).unsqueeze(dim = 0))
