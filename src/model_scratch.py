@@ -757,7 +757,7 @@ if __name__ == "__main__":
 
     """コマンドライン引数を取得"""
     parser = argparse.ArgumentParser(description="Gemma3モデルの学習")
-    parser.add_argument("--output_dir", type=str, default="output", help="出力先ディレクトリ defaul_dir: output, type: str")
+    parser.add_argument("--output_dir", type=str, default="src/output", help="出力先ディレクトリ defaul_dir: src/output, type: str")
     parser.add_argument("--learning_rate", type=float, default=1e-4, help="学習率 defaul_lr: 1e-4, type: float")
     parser.add_argument("--max_steps", type=int, default=10000, help="最大ステップ数 defaul_max_steps: 10000, type: int")
     parser.add_argument("--warmup_steps", type=int, default=100, help="ウォームアップステップ数 defaul_warmup_steps: 100, type: int")

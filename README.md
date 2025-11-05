@@ -3,13 +3,22 @@
 ## 概要
 
 - google/gemma-3-270mをもとに、アーキテクチャの概念理解の為に作成した学習用リポジトリです
-- redditに投稿された学習用ファイルを参考に、一部実装を変更して利用します[Gemma_3_270m_pre_training](https://www.reddit.com/r/LocalLLaMA/comments/1n0haub/comment/naqnjg9/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button)
+- redditに投稿された学習用ファイルをベースとし、一部実装を変更して利用します[Gemma_3_270m_pre_training](https://www.reddit.com/r/LocalLLaMA/comments/1n0haub/comment/naqnjg9/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button)
+
+<img src=gemma_3_270m.png width=600>
+
+## 構成
+
+```txt
+```
+
+
 
 
 
 ## ベースモデルアーキテクチャ
 
-<img src=gemma_3_270m.png width=600>
+
 
 ```txt
 Gemma3ForCausalLM(
