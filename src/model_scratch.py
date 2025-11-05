@@ -754,6 +754,17 @@ if __name__ == "__main__":
     enc = tiktoken.get_encoding("gpt2")
     os.makedirs(output_dir, exist_ok=True)
 
+    # GEMMA3_CONFIG_270MをJSON形式で保存
+    config_for_json = GEMMA3_CONFIG_270M.copy()
+    # torch.dtypeを文字列に変換
+    if "dtype" in config_for_json:
+        config_for_json["dtype"] = str(config_for_json["dtype"]).replace("torch.", "")
+
+    config_path = os.path.join(output_dir, "gemma_config.json")
+    with open(config_path, "w") as f:
+        json.dump(config_for_json, f, indent=2)
+    print(f"Model configuration saved to {config_path}")
+
     # データセットのロード
     train_ds = load_dataset("wikimedia/wikipedia", "20231101.en", split="train[:1000]")
     val_ds = load_dataset("wikimedia/wikipedia", "20231101.en", split="train[1000:1100]")
