@@ -595,7 +595,7 @@ class Gemma3Model(nn.Module):
         """
         ones = torch.ones((seq_len, seq_len), dtype=torch.bool, device=device)
 
-        # mask_global (将来はマスク: j > i)
+        # mask_global (未来のデータはマスク: j > i)
         #     j:  0 1 2 3 4 5 6 7
         #  i
         #     0:  0 1 1 1 1 1 1 1
@@ -608,7 +608,7 @@ class Gemma3Model(nn.Module):
         #     7:  0 0 0 0 0 0 0 0
         mask_global = torch.triu(ones, diagonal=1)
 
-        # far_past (遠すぎる過去はマスク: i - j >= sliding_window)
+        # far_past (過去のデータはマスク: i - j >= sliding_window)
         # sliding_window = 4の場合
         #     j:  0 1 2 3 4 5 6 7
         #  i
@@ -622,7 +622,7 @@ class Gemma3Model(nn.Module):
         #     7:  1 1 1 1 0 0 0 0
         far_past = torch.triu(ones, diagonal=self.cfg["sliding_window"]).T
 
-        # ローカル (スライディングウィンドウ) = 将来 OR 遠過去
+        # ローカル (スライディングウィンドウ) = 未来のデータ 又は 過去データ
         # mask_local
         #     j:  0 1 2 3 4 5 6 7
         # i
@@ -747,32 +747,60 @@ GEMMA3_CONFIG_270M = {
     "query_pre_attn_scalar": 256,
 }
 
+import argparse
 import tiktoken
 import matplotlib.pyplot as plt
 from torch.optim.lr_scheduler import LinearLR,SequentialLR, CosineAnnealingLR
 
+
 if __name__ == "__main__":
 
-    output_dir = "output" # 出力先ディレクトリ
-    learning_rate = 1e-4  # より安定した訓練、以前は1e-4
-    max_steps = 10000 # 最大ステップ数(train_loaderの件数より少ない場合のみ、上限として機能)
-    warmup_steps = 100 # ウォームアップステップ数
-    min_lr = 5e-4 # 最小学習率
-    eval_iters = 200 # 評価ステップ数
-    gradient_accumulation_steps = 4 # 勾配累積ステップ数
-    train_batch_size = 1 # 訓練バッチサイズ
-    vak_batch_size = 1 # 検証バッチサイズ
-    max_length = 2048 # 最大シーケンス長
-    stride = 2048 # ストライド長
-    add_eos_between_documents = True # EOSトークンを追加
-    eos_token = "<|endoftext|>" # EOSトークン
-    logging_steps = 1 # ロギングステップ数
-    weight_decay = 0.1 # 重み減衰率
-    betas = (0.9, 0.95) # ベータスケジューラ
-    seed = 42 # 乱数シード
-    tiktoken_encoder_name = "gpt2" # トークナイザー名
-    train_dataset_path = "src/train.jsonl"
-    val_dataset_path = "src/val.jsonl"
+    """コマンドライン引数を取得"""
+    parser = argparse.ArgumentParser(description="Gemma3モデルの学習")
+    parser.add_argument("--output_dir", type=str, default="output", help="出力先ディレクトリ defaul_dir: output, type: str")
+    parser.add_argument("--learning_rate", type=float, default=1e-4, help="学習率 defaul_lr: 1e-4, type: float")
+    parser.add_argument("--max_steps", type=int, default=10000, help="最大ステップ数 defaul_max_steps: 10000, type: int")
+    parser.add_argument("--warmup_steps", type=int, default=100, help="ウォームアップステップ数 defaul_warmup_steps: 100, type: int")
+    parser.add_argument("--min_lr", type=float, default=5e-4, help="最小学習率 defaul_min_lr: 5e-4, type: float")
+    parser.add_argument("--eval_iters", type=int, default=200, help="評価ステップ数 defaul_eval_iters: 200, type: int")
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=4, help="勾配累積ステップ数 defaul_gradient_accumulation_steps: 4, type: int")
+    parser.add_argument("--train_batch_size", type=int, default=1, help="訓練バッチサイズ")
+    parser.add_argument("--val_batch_size", type=int, default=1, help="検証バッチサイズ defaul_val_batch_size: 1, type: int")
+    parser.add_argument("--max_length", type=int, default=2048, help="最大シーケンス長 defaul_max_length: 2048, type: int")
+    parser.add_argument("--stride", type=int, default=2048, help="ストライド長 defaul_stride: 2048, type: int")
+    parser.add_argument("--add_eos_between_documents", type=bool, default=True, help="EOSトークンを追加")
+    parser.add_argument("--eos_token", type=str, default="<|endoftext|>", help="EOSトークン defaul_eos_token: <|endoftext|>, type: str")
+    parser.add_argument("--logging_steps", type=int, default=1, help="ロギングステップ数 defaul_logging_steps: 1, type: int")
+    parser.add_argument("--weight_decay", type=float, default=0.1, help="重み減衰率 defaul_weight_decay: 0.1, type: float")   
+    parser.add_argument("--betas", type=tuple, default=(0.9, 0.95), help="ベータスケジューラ defaul_betas: (0.9, 0.95), type: tuple")
+    parser.add_argument("--seed", type=int, default=42, help="乱数シード defaul_seed: 42, type: int")
+    parser.add_argument("--tiktoken_encoder_name", type=str, default="gpt2", help="トークナイザー名 defaul_tiktoken_encoder_name: gpt2, type: str")
+    parser.add_argument("--train_dataset_path", type=str, default="src/train.jsonl", help="訓練データセットパス defaul_train_dataset_path: src/train.jsonl, type: str")
+    parser.add_argument("--val_dataset_path", type=str, default="src/val.jsonl", help="検証データセットパス defaul_val_dataset_path: src/val.jsonl, type: str")
+    args = parser.parse_args()
+    print(args)
+
+    """変数設定"""
+    output_dir = args.output_dir # 出力先ディレクトリ
+    learning_rate = args.learning_rate # 学習率
+    max_steps = args.max_steps # 最大ステップ数(train_loaderの件数より少ない場合のみ、上限として機能)
+    warmup_steps = args.warmup_steps # ウォームアップステップ数
+    min_lr = args.min_lr # 最小学習率
+    eval_iters = args.eval_iters # 評価ステップ数
+    gradient_accumulation_steps = args.gradient_accumulation_steps # 勾配累積ステップ数
+    train_batch_size = args.train_batch_size # 訓練バッチサイズ
+    vak_batch_size = args.val_batch_size # 検証バッチサイズ
+    max_length = args.max_length # 最大シーケンス長
+    stride = args.stride # ストライド長
+    add_eos_between_documents = args.add_eos_between_documents # EOSトークンを追加
+    eos_token = args.eos_token # EOSトークン
+    logging_steps = args.logging_steps # ロギングステップ数
+    weight_decay = args.weight_decay # 重み減衰率
+    betas = args.betas # ベータスケジューラ
+    seed = args.seed # 乱数シード
+    tiktoken_encoder_name = args.tiktoken_encoder_name # トークナイザー名
+    train_dataset_path = args.train_dataset_path # 訓練データセットパス
+    val_dataset_path = args.val_dataset_path # 検証データセットパス
 
     # トークナイザーを初期化
     enc = tiktoken.get_encoding(tiktoken_encoder_name)
