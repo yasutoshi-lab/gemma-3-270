@@ -5,18 +5,8 @@ FROM nvidia/cuda:12.9.1-cudnn-runtime-ubuntu22.04
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       python3 \
-      python3-pip \
-      git \ 
-      iputils-ping \
-      net-tools \
-      curl \            
-      wget \                 
-      ca-certificates \      
-      build-essential \      
+      python3-pip \ 
       vim \             
-      less \     
-      net-tools \          
-      dnsutils \
 && rm -rf /var/lib/apt/lists/*
 
 # upgrade pip
