@@ -785,7 +785,7 @@ def estimate_loss_with_loader(model, loader, max_batches=None):
     from contextlib import nullcontext
 
     learning_rate = 1e-4  # より安定した訓練、以前は1e-4
-    max_iters = 10000
+    max_steps = 10000
     warmup_steps = 20
     min_lr = 5e-4
     eval_iters = 200
@@ -809,7 +809,7 @@ def estimate_loss_with_loader(model, loader, max_batches=None):
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, betas=(0.9, 0.95), weight_decay=0.1, eps=1e-9)  # 正則化のための重み減衰
 
     scheduler_warmup = LinearLR(optimizer, total_iters=warmup_steps)  # 線形ウォームアップの実装
-    scheduler_decay = CosineAnnealingLR(optimizer, T_max=max_iters - warmup_steps, eta_min=min_lr)  # 学習率減衰の実装
+    scheduler_decay = CosineAnnealingLR(optimizer, T_max=max_steps - warmup_steps, eta_min=min_lr)  # 学習率減衰の実装
     scheduler = SequentialLR(optimizer, schedulers=[scheduler_warmup, scheduler_decay], milestones=[warmup_steps])  # ウォームアップから減衰への切り替え
 
     # https://stackoverflow.com/questions/72534859/is-gradscaler-necessary-with-mixed-precision-training-with-pytorch
@@ -827,8 +827,8 @@ def estimate_loss_with_loader(model, loader, max_batches=None):
     global_step = 0
 
     # トレーニングループ（ステップ数で制御）
-    pbar = tqdm(total=max_iters)
-    while global_step < max_iters:
+    pbar = tqdm(total=max_steps)
+    while global_step < max_steps:
         try:
             X, Y = next(train_iter)
         except StopIteration:
@@ -843,7 +843,7 @@ def estimate_loss_with_loader(model, loader, max_batches=None):
             loss = loss / gradient_accumulation_steps
             scaler.scale(loss).backward()
 
-        if ((global_step + 1) % gradient_accumulation_steps == 0) or (global_step + 1 == max_iters):
+        if ((global_step + 1) % gradient_accumulation_steps == 0) or (global_step + 1 == max_steps):
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
             scaler.step(optimizer)
             scaler.update()
