@@ -2,7 +2,10 @@
 
 ## 概要
 
-このリポジトリはgemma-3-270をスクラッチ開発するためのものです
+- google/gemma-3-270mをもとに、アーキテクチャの概念理解の為に作成した学習用リポジトリです
+- redditに投稿されたコードファイル, データセットを利用しています[Gemma_3_270m_pre_training](https://www.reddit.com/r/LocalLLaMA/comments/1n0haub/comment/naqnjg9/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button)
+
+
 
 ## 構造
 
@@ -66,10 +69,3 @@ uv run src/gemma_3_270m_inference.py --prompt "Grandmother was telling" --max_to
 | `--top_k` | int | None | Top-kサンプリング（指定数の上位候補から選択） |
 | `--model_path` | str | "best_model_params.pt" | モデルパラメータファイルのパス |
 | `--device` | str | "auto" | 使用デバイス（cuda/cpu/auto） |
-
-
-## Push時の注意点
-https://qiita.com/kanaya/items/ad52f25da32cb5aa19e6
-
-## コードの引用元
-https://www.reddit.com/r/LocalLLaMA/comments/1n0haub/comment/naqnjg9/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button
