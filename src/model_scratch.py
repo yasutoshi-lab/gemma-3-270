@@ -1,10 +1,19 @@
 import os
+import json
+import math
 import numpy as np
-from tqdm.auto import tqdm
 
-from typing import Iterable, Optional, Union
-from datasets import load_dataset
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
+
+from tqdm.auto import tqdm
+from datasets import load_dataset
+from dataclasses import dataclass
+from contextlib import nullcontext
+from typing import Iterable, Optional, Union
+from safetensors.torch import save_file, load_file
 
 class GPTDatasetV1(Dataset):
     def __init__(
@@ -34,7 +43,6 @@ class GPTDatasetV1(Dataset):
     def __getitem__(self, idx):
         return self.input_ids[idx], self.target_ids[idx]
 
-import torch
 
 def union_dataset_text(
     source: Union[Iterable[str], "datasets.Dataset"],
@@ -114,8 +122,6 @@ def create_dataloader_v1(
 
     return dataloader
 
-import torch
-
 def compute_rope_params(head_dim, theta_base=10_000, context_length=4096, dtype=torch.float32):
     """RoPE（Rotary Position Embedding）のパラメータを計算
     
@@ -193,17 +199,6 @@ def apply_rope(x, cos, sin):
     # cosとsin回転を適用した後は低精度を使用しても問題ない
     return x_rotated.to(dtype=x.dtype)
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import math
-from dataclasses import dataclass
-import numpy as np
-from tqdm.auto import tqdm
-from contextlib import nullcontext
-import os
-import json
-from safetensors.torch import save_file, load_file
 
 class RMSNorm(nn.Module):
     """Root Mean Square正規化レイヤー（Gemma3実装）。
@@ -253,7 +248,6 @@ class RMSNorm(nn.Module):
             out = out + self.shift.float()
 
         return out.to(input_dtype)
-
 
 
 class GroupedQueryAttention(nn.Module):
@@ -373,6 +367,7 @@ class GroupedQueryAttention(nn.Module):
 
         context = (attn_weights @ values).transpose(1, 2).reshape(b, num_tokens, self.d_out)
         return self.out_proj(context)
+
 
 class FeedForward(nn.Module):
     """ゲート付きフィードフォワードネットワーク（Gemma3スタイル）
@@ -516,6 +511,7 @@ class TransformerBlock(nn.Module):
         x_ffn = self.post_feedforward_layernorm(x_ffn)
         x = shortcut + x_ffn
         return x
+
 
 class Gemma3Model(nn.Module):
     """完全なGemma3モデル。
@@ -713,6 +709,7 @@ class Gemma3Model(nn.Module):
             idx = torch.cat((idx, idx_next), dim=1)
         return idx
 
+"""モデルアーキテクチャを定義"""
 GEMMA3_CONFIG_270M = {
     "vocab_size": 50257,
     "context_length": 32_768,
@@ -750,30 +747,36 @@ GEMMA3_CONFIG_270M = {
     "query_pre_attn_scalar": 256,
 }
 
+import tiktoken
+import matplotlib.pyplot as plt
+from torch.optim.lr_scheduler import LinearLR,SequentialLR, CosineAnnealingLR
+
 if __name__ == "__main__":
 
-    output_dir = "output"
+    output_dir = "output" # 出力先ディレクトリ
     learning_rate = 1e-4  # より安定した訓練、以前は1e-4
     max_steps = 10000 # 最大ステップ数(train_loaderの件数より少ない場合のみ、上限として機能)
-    warmup_steps = 100
-    min_lr = 5e-4
-    eval_iters = 200
-    gradient_accumulation_steps = 4
-    train_batch_size = 1
-    vak_batch_size = 1
-    max_length = 2048
-    stride = 2048
-    add_eos_between_documents = True
-    eos_token = "<|endoftext|>"
-    logging_steps = 1
-    weight_decay = 0.1
-    betas = (0.9, 0.95)
-    seed = 42
-    tiktoken_encoder_name = "gpt2"
+    warmup_steps = 100 # ウォームアップステップ数
+    min_lr = 5e-4 # 最小学習率
+    eval_iters = 200 # 評価ステップ数
+    gradient_accumulation_steps = 4 # 勾配累積ステップ数
+    train_batch_size = 1 # 訓練バッチサイズ
+    vak_batch_size = 1 # 検証バッチサイズ
+    max_length = 2048 # 最大シーケンス長
+    stride = 2048 # ストライド長
+    add_eos_between_documents = True # EOSトークンを追加
+    eos_token = "<|endoftext|>" # EOSトークン
+    logging_steps = 1 # ロギングステップ数
+    weight_decay = 0.1 # 重み減衰率
+    betas = (0.9, 0.95) # ベータスケジューラ
+    seed = 42 # 乱数シード
+    tiktoken_encoder_name = "gpt2" # トークナイザー名
+    train_dataset_path = "src/train.jsonl"
+    val_dataset_path = "src/val.jsonl"
 
-    import tiktoken
-
+    # トークナイザーを初期化
     enc = tiktoken.get_encoding(tiktoken_encoder_name)
+    # 出力ディレクトリを作成
     os.makedirs(output_dir, exist_ok=True)
 
     # GEMMA3_CONFIG_270MをJSON形式で保存
@@ -782,6 +785,7 @@ if __name__ == "__main__":
     if "dtype" in config_for_json:
         config_for_json["dtype"] = str(config_for_json["dtype"]).replace("torch.", "")
 
+    # モデル設定をJSONファイルとして保存
     config_path = os.path.join(output_dir, "config.json")
     with open(config_path, "w") as f:
         json.dump(config_for_json, f, indent=2)
@@ -800,18 +804,23 @@ if __name__ == "__main__":
             # デコードできない場合はスキップ
             pass
 
+    # トークナイザー情報をJSONファイルとして保存
     vocab_path = os.path.join(output_dir, "vocab.json")
     with open(vocab_path, "w", encoding="utf-8") as f:
         json.dump(vocab, f, indent=2, ensure_ascii=False)
     print(f"Vocabulary saved to {vocab_path} ({len(vocab)} tokens)")
 
     # データセットのロード
-    train_ds = load_dataset("wikimedia/wikipedia", "20231101.en", split="train[:1000]")
-    val_ds = load_dataset("wikimedia/wikipedia", "20231101.en", split="train[1000:1100]")
+    train_ds = load_dataset("json", data_files=train_dataset_path)
+    val_ds = load_dataset("json", data_files=val_dataset_path)
 
+    # 乱数シードを設定
     torch.manual_seed(seed)
+
+    # モデルを構築
     model = Gemma3Model(GEMMA3_CONFIG_270M)
 
+    # 損失を計算する関数
     def estimate_loss_with_loader(model, loader, max_batches=None):
         model.eval()
         losses = []
@@ -831,13 +840,11 @@ if __name__ == "__main__":
         model.train()
         return float(np.mean(losses)) if losses else float("inf")
 
-    import torch
-    from contextlib import nullcontext
-
+    # デバイスを設定
     device = "cuda" if torch.cuda.is_available() else "cpu"
     device_type = 'cuda' if 'cuda' in device else 'cpu'
 
-    # dataloaderの作成（torch.set_default_deviceの前）
+    # 訓練データローダーを作成
     train_loader = create_dataloader_v1(
         enc,
         train_ds,
@@ -850,6 +857,7 @@ if __name__ == "__main__":
         pin_memory=(device_type == 'cuda'),
     )
 
+    # 検証データローダーを作成
     val_loader = create_dataloader_v1(
         enc,
         val_ds,
@@ -862,7 +870,6 @@ if __name__ == "__main__":
         pin_memory=(device_type == 'cuda'),
     )
 
-    # max_stepsをtrain_loaderの件数に基づいて調整
     # max_stepsがtrain_loaderの件数より少ない場合のみ、上限として機能
     max_steps = min(max_steps, len(train_loader))
     print(f"Training steps: {max_steps} (train_loader size: {len(train_loader)})")
@@ -870,16 +877,13 @@ if __name__ == "__main__":
     # autocastの使用方法 https://wandb.ai/wandb_fc/tips/reports/How-To-Use-Autocast-in-PyTorch--VmlldzoyMTk4NTky
     dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16'
     ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[dtype]
-
     ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
-
     torch.manual_seed(42)
-
-    from torch.optim.lr_scheduler import LinearLR,SequentialLR, CosineAnnealingLR
 
     ## 重み減衰を追加、BETA2を0.95に変更
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, betas=betas, weight_decay=weight_decay, eps=1e-9)  # 正則化のための重み減衰
 
+    # 学習率スケジューラを作成
     scheduler_warmup = LinearLR(optimizer, total_iters=warmup_steps)  # 線形ウォームアップの実装
     scheduler_decay = CosineAnnealingLR(optimizer, T_max=max_steps - warmup_steps, eta_min=min_lr)  # 学習率減衰の実装
     scheduler = SequentialLR(optimizer, schedulers=[scheduler_warmup, scheduler_decay], milestones=[warmup_steps])  # ウォームアップから減衰への切り替え
@@ -887,19 +891,22 @@ if __name__ == "__main__":
     # https://stackoverflow.com/questions/72534859/is-gradscaler-necessary-with-mixed-precision-training-with-pytorch
     scaler = torch.amp.GradScaler(device_type, enabled=(dtype == 'float16'))
 
+    # 最良の検証損失を保存
     best_val_loss = float('inf')
+    # モデルのパス
     model_path = os.path.join(output_dir, "model.safetensors")
     train_loss_list, validation_loss_list = [], []
     training_log = []
     validation_log = []
 
+    # モデルをデバイスに移動
     model = model.to(device)
 
     # 反復可能なイテレータを使って DataLoader から連続的に取り出す
     train_iter = iter(train_loader)
     global_step = 0
 
-    # トレーニングループ（ステップ数で制御）
+    """トレーニングループ"""
     pbar = tqdm(total=max_steps)
     while global_step < max_steps:
         try:
@@ -964,7 +971,7 @@ if __name__ == "__main__":
 
     pbar.close()
 
-    import matplotlib.pyplot as plt
+    """損失関数のグラフを描画"""
     train_loss_list_converted = list(train_loss_list)
     validation_loss_list_converted = list(validation_loss_list)
 
@@ -975,13 +982,15 @@ if __name__ == "__main__":
     plt.legend()
     plt.savefig(os.path.join(output_dir, 'loss_function.png'))
 
-    # モデルをロード
-    model = Gemma3Model(GEMMA3_CONFIG_270M)  # 同じ設定でモデルを再作成
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    best_model_params_path = os.path.join(output_dir, "model.safetensors")
-    model.load_state_dict(load_file(best_model_params_path))  # 最良のモデル状態をロード
+    print("Training completed!")
 
-    sentence = "Neural Networks"
-    context = (torch.tensor(enc.encode_ordinary(sentence)).unsqueeze(dim = 0))
-    y = model.generate(context, 200)
-    print(enc.decode(y.squeeze().tolist()))
+    # # モデルをロード
+    # model = Gemma3Model(GEMMA3_CONFIG_270M)  # 同じ設定でモデルを再作成
+    # device = "cuda" if torch.cuda.is_available() else "cpu"
+    # best_model_params_path = os.path.join(output_dir, "model.safetensors")
+    # model.load_state_dict(load_file(best_model_params_path))  # 最良のモデル状態をロード
+
+    # sentence = "Neural Networks"
+    # context = (torch.tensor(enc.encode_ordinary(sentence)).unsqueeze(dim = 0))
+    # y = model.generate(context, 200)
+    # print(enc.decode(y.squeeze().tolist()))
