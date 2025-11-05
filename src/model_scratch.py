@@ -1,20 +1,15 @@
-import tiktoken
+
 import os
 import numpy as np
 from tqdm.auto import tqdm
 from datasets import load_dataset
 
-enc = tiktoken.get_encoding("gpt2")
+
 
 # train_ds = load_dataset("json", data_files="train_dataset_25000.jsonl")
 # validation_ds = load_dataset("json", data_files="validation_dataset_2500.jsonl")
 
-train_ds = load_dataset("wikimedia/wikipedia", "20231101.en",split="train[:1000]")
-val_ds = load_dataset("wikimedia/wikipedia", "20231101.en",split="train[1000:1100]")
 
-output_dir = "output"
-
-os.makedirs(output_dir, exist_ok=True)
 
 # def process(example):
 #     """テキストサンプルをトークンIDに変換
@@ -99,29 +94,6 @@ os.makedirs(output_dir, exist_ok=True)
 #     return x, y
 
 from dataloader import create_dataloader_v1
-
-train_loader = create_dataloader_v1(
-    train_ds,
-    batch_size=4,
-    max_length=4096,
-    stride=4096,
-    shuffle=True,
-    add_eos_between_documents=True,
-    eos_token="<|endoftext|>",
-    pin_memory=True,
-)
-
-val_loader = create_dataloader_v1(
-    val_ds,
-    batch_size=4,
-    max_length=4096,
-    stride=4096,
-    shuffle=False,
-    add_eos_between_documents=True,
-    eos_token="<|endoftext|>",
-    pin_memory=True,
-)
-
 
 import torch
 
@@ -760,41 +732,88 @@ GEMMA3_CONFIG_270M = {
 
 if __name__ == "__main__":
 
+    output_dir = "output"
+    learning_rate = 1e-4  # より安定した訓練、以前は1e-4
+    max_steps = 10000 # 最大ステップ数(train_loaderの件数より少ない場合のみ、上限として機能)
+    warmup_steps = 100
+    min_lr = 5e-4
+    eval_iters = 200
+    gradient_accumulation_steps = 4
+    train_batch_size = 1
+    vak_batch_size = 1
+    max_length = 2048
+    stride = 2048
+    add_eos_between_documents = True
+    eos_token = "<|endoftext|>"
+    logging_steps = 1
+    weight_decay = 0.1
+    betas = (0.9, 0.95)
+
+    import tiktoken
+
+    enc = tiktoken.get_encoding("gpt2")
+    os.makedirs(output_dir, exist_ok=True)
+
+    # データセットのロード
+    train_ds = load_dataset("wikimedia/wikipedia", "20231101.en", split="train[:1000]")
+    val_ds = load_dataset("wikimedia/wikipedia", "20231101.en", split="train[1000:1100]")
+
     torch.manual_seed(123)
     model = Gemma3Model(GEMMA3_CONFIG_270M)
 
-def estimate_loss_with_loader(model, loader, max_batches=None):
-    model.eval()
-    losses = []
-    limit = len(loader) if max_batches is None else min(len(loader), max_batches)
-    with torch.inference_mode():
-        it = iter(loader)
-        for _ in range(limit):
-            try:
-                X, Y = next(it)
-            except StopIteration:
-                break
-            X = X.to(device, non_blocking=True)
-            Y = Y.to(device, non_blocking=True)
-            with ctx:
-                _, loss = model(X, Y)
-            losses.append(loss.item())
-    model.train()
-    return float(np.mean(losses)) if losses else float("inf")
+    def estimate_loss_with_loader(model, loader, max_batches=None):
+        model.eval()
+        losses = []
+        limit = len(loader) if max_batches is None else min(len(loader), max_batches)
+        with torch.inference_mode():
+            it = iter(loader)
+            for _ in range(limit):
+                try:
+                    X, Y = next(it)
+                except StopIteration:
+                    break
+                X = X.to(device, non_blocking=True)
+                Y = Y.to(device, non_blocking=True)
+                with ctx:
+                    _, loss = model(X, Y)
+                losses.append(loss.item())
+        model.train()
+        return float(np.mean(losses)) if losses else float("inf")
 
     # トレーニング設定
     import torch
     from contextlib import nullcontext
 
-    learning_rate = 1e-4  # より安定した訓練、以前は1e-4
-    max_steps = 10000
-    warmup_steps = 20
-    min_lr = 5e-4
-    eval_iters = 200
-    gradient_accumulation_steps = 1
-
     device = "cuda" if torch.cuda.is_available() else "cpu"
     device_type = 'cuda' if 'cuda' in device else 'cpu'
+
+    # dataloaderの作成（torch.set_default_deviceの前）
+    train_loader = create_dataloader_v1(
+        train_ds,
+        batch_size=train_batch_size,
+        max_length=max_length,
+        stride=stride,
+        shuffle=False,
+        add_eos_between_documents=add_eos_between_documents,
+        eos_token=eos_token,
+        pin_memory=(device_type == 'cuda'),
+    )
+
+    val_loader = create_dataloader_v1(
+        val_ds,
+        batch_size=vak_batch_size,
+        max_length=max_length,
+        stride=stride,
+        shuffle=False,
+        add_eos_between_documents=add_eos_between_documents,
+        eos_token=eos_token,
+        pin_memory=(device_type == 'cuda'),
+    )
+
+    # max_stepsをtrain_loaderの件数に基づいて調整
+    # max_stepsがtrain_loaderの件数より少ない場合のみ、上限として機能
+    max_steps = min(max_steps, len(train_loader))
+    print(f"Training steps: {max_steps} (train_loader size: {len(train_loader)})")
 
     # autocastの使用方法 https://wandb.ai/wandb_fc/tips/reports/How-To-Use-Autocast-in-PyTorch--VmlldzoyMTk4NTky
     dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16'
@@ -802,25 +821,25 @@ def estimate_loss_with_loader(model, loader, max_batches=None):
 
     ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
 
-    torch.set_default_device(device)
     torch.manual_seed(42)
 
     from torch.optim.lr_scheduler import LinearLR,SequentialLR, CosineAnnealingLR
 
     ## 重み減衰を追加、BETA2を0.95に変更
-    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, betas=(0.9, 0.95), weight_decay=0.1, eps=1e-9)  # 正則化のための重み減衰
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, betas=betas, weight_decay=weight_decay, eps=1e-9)  # 正則化のための重み減衰
 
     scheduler_warmup = LinearLR(optimizer, total_iters=warmup_steps)  # 線形ウォームアップの実装
     scheduler_decay = CosineAnnealingLR(optimizer, T_max=max_steps - warmup_steps, eta_min=min_lr)  # 学習率減衰の実装
     scheduler = SequentialLR(optimizer, schedulers=[scheduler_warmup, scheduler_decay], milestones=[warmup_steps])  # ウォームアップから減衰への切り替え
 
     # https://stackoverflow.com/questions/72534859/is-gradscaler-necessary-with-mixed-precision-training-with-pytorch
-    scaler = torch.cuda.amp.GradScaler(enabled=(dtype == 'float16'))
+    scaler = torch.amp.GradScaler(device_type, enabled=(dtype == 'float16'))
 
     best_val_loss = float('inf')
     best_model_params_path = os.path.join(output_dir, "best_model_params.pt")
     train_loss_list, validation_loss_list = [], []
     training_log = []
+    validation_log = []
 
     model = model.to(device)
 
@@ -850,11 +869,25 @@ def estimate_loss_with_loader(model, loader, max_batches=None):
             scaler.step(optimizer)
             scaler.update()
             optimizer.zero_grad(set_to_none=True)
-        scheduler.step()
+            scheduler.step()
 
         global_step += 1
         pbar.update(1)
 
+        # training_logをlogging_stepsごとに記録
+        if global_step % logging_steps == 0:
+            current_lr = optimizer.param_groups[0]['lr']
+            training_log_entry = {
+                "step": global_step,
+                "train_loss": float(loss.item() * gradient_accumulation_steps),  # 元のloss値
+                "learning_rate": current_lr,
+                "gradient_accumulation_steps": gradient_accumulation_steps
+            }
+            training_log.append(training_log_entry)
+            with open(os.path.join(output_dir, "training_log.json"), "w") as f:
+                json.dump(training_log, f, indent=2)
+
+        # validation_logを評価モード（eval_iters）のときに記録
         if global_step % eval_iters == 0:
             current_lr = optimizer.param_groups[0]['lr']
             train_loss = estimate_loss_with_loader(model, train_loader, max_batches=min(len(train_loader), 50))
@@ -865,16 +898,13 @@ def estimate_loss_with_loader(model, loader, max_batches=None):
             train_loss_list.append(train_loss)
             validation_loss_list.append(val_loss)
 
-            log_entry = {
+            validation_log_entry = {
                 "step": global_step,
-                "train_loss": float(train_loss),
                 "val_loss": float(val_loss),
-                "learning_rate": current_lr
             }
-            training_log.append(log_entry)
-
-            with open(os.path.join(output_dir, "training_log.json"), "w") as f:
-                json.dump(training_log, f, indent=2)
+            validation_log.append(validation_log_entry)
+            with open(os.path.join(output_dir, "validation_log.json"), "w") as f:
+                json.dump(validation_log, f, indent=2)
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
@@ -900,17 +930,7 @@ def estimate_loss_with_loader(model, loader, max_batches=None):
     best_model_params_path = os.path.join(output_dir, "best_model_params.pt")
     model.load_state_dict(torch.load(best_model_params_path, map_location=torch.device(device)))  # 最良のモデル状態をロード
 
-    sentence = "Once upon a time there was a pumpkin."
-    context = (torch.tensor(enc.encode_ordinary(sentence)).unsqueeze(dim = 0))
-    y = model.generate(context, 200)
-    print(enc.decode(y.squeeze().tolist()))
-
-    sentence = "A little girl went to the woods"
-    context = (torch.tensor(enc.encode_ordinary(sentence)).unsqueeze(dim = 0))
-    y = model.generate(context, 200)
-    print(enc.decode(y.squeeze().tolist()))
-
-    sentence = "Grandmother was telling the kids story about a unicorn"
+    sentence = "Neural Networks"
     context = (torch.tensor(enc.encode_ordinary(sentence)).unsqueeze(dim = 0))
     y = model.generate(context, 200)
     print(enc.decode(y.squeeze().tolist()))

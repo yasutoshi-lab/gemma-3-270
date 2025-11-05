@@ -187,7 +187,7 @@ def main():
     parser.add_argument("--max_tokens", type=int, default=200, help="生成する最大トークン数")
     parser.add_argument("--temperature", type=float, default=1.0, help="サンプリング温度")
     parser.add_argument("--top_k", type=int, default=None, help="Top-Kサンプリング")
-    parser.add_argument("--model_path", type=str, default="best_model_params.pt", help="モデルパラメータファイルのパス")
+    parser.add_argument("--model_path", type=str, default="output/best_model_params.pt", help="モデルパラメータファイルのパス")
     parser.add_argument("--device", type=str, default="auto", help="使用するデバイス (cuda/cpu/auto)")
     
     args = parser.parse_args()
