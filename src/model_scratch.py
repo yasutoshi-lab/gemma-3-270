@@ -811,8 +811,8 @@ if __name__ == "__main__":
     print(f"Vocabulary saved to {vocab_path} ({len(vocab)} tokens)")
 
     # データセットのロード
-    train_ds = load_dataset("json", data_files=train_dataset_path)
-    val_ds = load_dataset("json", data_files=val_dataset_path)
+    train_ds = load_dataset("json", data_files=train_dataset_path, split="train")
+    val_ds = load_dataset("json", data_files=val_dataset_path, split="train")
 
     # 乱数シードを設定
     torch.manual_seed(seed)
@@ -983,14 +983,3 @@ if __name__ == "__main__":
     plt.savefig(os.path.join(output_dir, 'loss_function.png'))
 
     print("Training completed!")
-
-    # # モデルをロード
-    # model = Gemma3Model(GEMMA3_CONFIG_270M)  # 同じ設定でモデルを再作成
-    # device = "cuda" if torch.cuda.is_available() else "cpu"
-    # best_model_params_path = os.path.join(output_dir, "model.safetensors")
-    # model.load_state_dict(load_file(best_model_params_path))  # 最良のモデル状態をロード
-
-    # sentence = "Neural Networks"
-    # context = (torch.tensor(enc.encode_ordinary(sentence)).unsqueeze(dim = 0))
-    # y = model.generate(context, 200)
-    # print(enc.decode(y.squeeze().tolist()))
